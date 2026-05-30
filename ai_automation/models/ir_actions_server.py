@@ -1,5 +1,7 @@
 # Copyright 2026 Dixmit
 # License AGPL-3.0 or later (https://www.gnu.org/licenses/agpl).
+import re
+
 from lxml import etree
 
 from odoo import api, fields, models
@@ -22,6 +24,7 @@ class IrActionsServer(models.Model):
         groups="base.group_system",
     )
     ai_prompt = fields.Html(string="AI Prompt", sanitize=False)
+    ai_system_prompt = fields.Text()
     mailing_model_real = fields.Char(compute="_compute_mailing_model_real")
     ai_result_action = fields.Selection(
         [
@@ -46,19 +49,25 @@ class IrActionsServer(models.Model):
     def _run_action_ai_oca(self, eval_context=None):
         record = eval_context.get("record")
         result = self.ai_connection_id._run(
-            self._get_ai_oca_prompt(record), tools=self.ai_tool_ids, record=record
+            self._get_ai_oca_prompt(record),
+            tools=self.ai_tool_ids,
+            record=record,
+            system_prompt=self.ai_system_prompt,
         )
         self._post_run_action_ai_oca(result, record)
 
     def _post_run_action_ai_oca(self, result, record):
+        cleaned_content = re.sub(
+            r"<think>.*?</think>", "", result, flags=re.DOTALL
+        ).strip()
         if self.ai_result_action == "post_message":
-            self.env["ai.tool"]._ai_post_message(result, record=record)
+            self.env["ai.tool"]._ai_post_message(cleaned_content, record=record)
         elif (
             self.ai_result_action == "update_record"
             and record
             and self.ai_update_record_field_id
         ):
-            record.write({self.ai_update_record_field_id.name: result})
+            record.write({self.ai_update_record_field_id.name: cleaned_content})
 
     def _get_ai_oca_prompt(self, record):
         ai_prompt = self.ai_prompt
